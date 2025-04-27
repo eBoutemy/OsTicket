@@ -1,0 +1,59 @@
+#!/bin/bash
+
+MYSQL_ROOT="MyPassword"
+OSTICKET_DB="osticket"
+OSTICKET_USER="osticket_user"
+OSTICKET_PASSWORD="OsTicket_password"
+WEB_ROOT="/var/www/html/osticket"
+PHP_VERSION="8.2"
+OSTICKET_VERSION="v1.18"
+APACHE_CONF="/etc/apache2/sites-available/osticket.conf"
+
+apt update && apt upgrade -y
+
+apt install -y apache2 mariadb-server php$PHP_VERSION php$PHP_VERSION-{mysql,imap,gd,intl,xml,mbstring,apcu,common,cli,opcache,zip,curl} unzip wget
+
+systemctl enable apache2
+systemctl enable mariadb
+systemctl start apache2
+systemctl start mariadb
+
+mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}'; FLUSH PRIVILEGES;"
+
+mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "CREATE DATABASE ${OSTICKET_DB};"
+mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "CREATE USER '${OSTICKET_USER}'@'localhost' IDENTIFIED BY '${OSTICKET_PASSWORD}';"
+mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "GRANT ALL PRIVILEGES ON ${OSTICKET_DB}.* TO '${OSTICKET_USER}'@'localhost'; FLUSH PRIVILEGES;"
+
+mkdir -p ${WEB_ROOT}
+wget https://github.com/osTicket/osTicket/releases/download/${OSTICKET_VERSION}/osTicket-${OSTICKET_VERSION}.zip -O /tmp/osticket.zip
+unzip /tmp/osticket.zip -d /tmp/
+cp -r /tmp/upload/* ${WEB_ROOT}
+cp ${WEB_ROOT}/include/ost-sampleconfig.php ${WEB_ROOT}/include/ost-config.php
+
+chown -R www-data:www-data ${WEB_ROOT}
+chmod 0666 ${WEB_ROOT}/include/ost-config.php
+
+cat <<EOF > ${APACHE_CONF}
+<VirtualHost *:80>
+    ServerAdmin admin@localhost
+    DocumentRoot ${WEB_ROOT}
+    <Directory ${WEB_ROOT}>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog \${APACHE_LOG_DIR}/osticket_error.log
+    CustomLog \${APACHE_LOG_DIR}/osticket_access.log combined
+</VirtualHost>
+EOF
+
+a2ensite osticket.conf
+a2enmod rewrite
+systemctl reload apache2
+
+echo "---------------------------------------"
+echo "Installation terminée !"
+echo "Base de données: ${OSTICKET_DB}"
+echo "Utilisateur DB: ${OSTICKET_USER}"
+echo "Mot de passe DB: ${OSTICKET_PASSWORD}"
+echo "---------------------------------------"
